@@ -25,7 +25,7 @@ ARGS=""
 # as in the --default example).
 # note: if this is set to -gt 0 the /etc/hosts part is not recognized ( may be a bug )
 
-echo $@;
+#echo $@;
 
 for i in "$@"
 do
@@ -160,7 +160,7 @@ if [ "$ALL" = "YES" ]
         then
               
 
-	echo "updateScript $i $ARGS"
+	#echo "updateScript $i $ARGS"
 	gnome-terminal -e "bash -c 'cd $PWD; updateScript $i $ARGS'"
 	#bash -c "bash -c 'cd $PWD; updateScript $i $ARGS'"
         else

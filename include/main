@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+
+
+function getCurrentDir(){
+    pushd `dirname $0` > /dev/null
+    CURRENT_PATH=`pwd -P`
+    popd > /dev/null
+
+    echo $CURRENT_PATH;
+}
+function requireRoot (){
+    if ! [ $(id -u) = 0 ]; then
+        echo "You must be logged in as root!"
+        exit 1
+    fi
+}
+
+function callOnYes(){
+   call=$1
+   if [ "$lastInput" = "y" ]; then
+    $call
+   fi
+}
+
+function callOnValue(){
+   call=$2
+   value=$1
+   if [ "$lastInput" = "$value" ]; then
+    $call
+   fi
+}
+
+function callIfSupported(){
+    if [ -f "$1" ]; then
+       $1
+    else
+        echo "This version is currently not supported for ${OS}! (No file at ${1})";
+    fi
+}
+
+function restartPhpFpm(){
+    if [ -f "/etc/init.d/php-fpm" ]; then
+      service php-fpm restart
+    fi
+
+    if [ -f "/etc/init.d/php7.0-fpm" ]; then
+      service php7.0-fpm restart
+    fi
+
+    if [ -f "/etc/init.d/php5-fpm" ]; then
+      service php5-fpm restart
+    fi
+
+    if [ -f "/etc/init.d/php5.6-fpm" ]; then
+      service php5.6-fpm restart
+    fi
+}
+
+function symbolicPhpFpm(){
+    if ! [[ -S "/var/run/php-fpm/php-fpm.sock" ]]; then
+        mkdir /var/run/php-fpm --parents;
+
+        if [[ -S "/var/run/php/php7.0-fpm.sock" ]]; then
+            ln -s /var/run/php/php7.0-fpm.sock /var/run/php-fpm/php-fpm.sock;
+        fi
+        if [[ -S "/var/run/php/php5-fpm.sock" ]]; then
+            ln -s /var/run/php/php5-fpm.sock /var/run/php-fpm/php-fpm.sock;
+        fi
+        if [[ -S "/var/run/php/php5.6-fpm.sock" ]]; then
+            ln -s /var/run/php/php5.6-fpm.sock /var/run/php-fpm/php-fpm.sock;
+        fi
+    fi
+}
+function getArrayArguments () {
+     a=("$@");
+     argumentsFrom=""
+     array=()
+     arrayPointer=0
+     for ((i = 0; i < ${#a[@]}; i++))
+     do
+         if [ $i = 0 ]; then
+            let argumentsFrom=${a[0]}-1
+         else
+             if [ $i -gt $argumentsFrom ]; then		
+                array[$arrayPointer]="${a[$i]}"
+                let arrayPointer++;
+             fi
+         fi
+     done
+     echo "${array[@]}"
+}
+
+function showChoices (){
+    name=$1[@]
+    a=("${!name}")
+
+    for ((i = 0; i < ${#a[@]}; i++))
+    do
+        echo  "$i: ${a[$i]}"
+    done
+}
+
+function askQuestion(){
+
+    #echo $@
+    question=$2
+    type=$1
+    default=$3
+    choices=($(getArrayArguments 4 "$@"))
+
+
+    while true; do
+        echo -n "${question} [${default}]: ";
+
+	if [ "${type}" = "directory" ]; then
+		echo ""
+		read -e input
+	else
+	        read input
+	fi
+
+        if ! [[ "$default" = "" ]] && [ "$input" = "" ]; then
+            lastInput=$default
+            break;
+        fi
+
+
+        if [ "${type}" = "number" ]; then
+            re='^[0-9]+$'
+            if [[ $input =~ $re ]] ; then
+                lastInput=$input
+                break
+            fi
+        elif [ "${type}" = "boolean" ]; then
+            if [ "$input" = "y" ] || [ "$input" = "n" ]; then
+                lastInput=$input;
+                break
+            fi
+	elif [ "${type}" = "choices" ]; then
+            if [[ "${#choices[$input]}" -ne 0 ]]; then
+                lastInput=$input;
+                break
+            fi       
+        elif [ "${type}" = "text" ]; then
+	  if ! [[ "${input}" = "" ]]; then
+                lastInput=$input;
+                break
+          fi
+	elif [ "${type}" = "directory" ]; then
+            if [[ -d  "$input" ]]; then
+                lastInput=$input;
+                break
+            fi       
+	 elif [ "${type}" = "file" ]; then
+            if [[ -f  "$input" ]]; then
+                lastInput=$input;
+                break
+            fi  
+        fi	
+    done
+
+}
+
+ARCH=$(uname -m | sed 's/x86_//;s/i[3-6]86/32/')
+
+if [ -f /etc/lsb-release ]; then
+    . /etc/lsb-release
+    OS=$DISTRIB_ID
+    VER=$DISTRIB_RELEASE
+elif [ -f /etc/debian_version ]; then
+    OS=Debian  # XXX or Ubuntu??
+    VER=$(cat /etc/debian_version)
+elif [ -f /etc/redhat-release ]; then
+    # TODO add code for Red Hat and CentOS here
+    OS=RedHat
+    VER=$(cat /etc/redhat-release)
+else
+    OS=$(uname -s)
+    VER=$(uname -r)
+fi

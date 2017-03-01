@@ -1,0 +1,266 @@
+#!/bin/bash
+
+pushd `dirname $0` > /dev/null
+CURRENT_PATH=`pwd -P`
+popd > /dev/null
+
+. /usr/include/updateScript/main
+
+ID=""
+ALL=NO
+TEST=NO
+DEFAULT=NO
+SQL=NO
+CHECKOUT=NO
+DEPENDENCIES=YES
+RUN_COMMAND_PRE=""
+RUN_COMMAND_POST=""
+
+ARGS=""
+#!/bin/bash
+# Use -gt 1 to consume two arguments per pass in the loop (e.g. each
+# argument has a corresponding value to go with it).
+# Use -gt 0 to consume one or more arguments per pass in the loop (e.g.
+# some arguments don't have a corresponding value to go with it such
+# as in the --default example).
+# note: if this is set to -gt 0 the /etc/hosts part is not recognized ( may be a bug )
+
+echo $@;
+
+for i in "$@"
+do
+case $i in
+    -c|--checkout)
+    CHECKOUT=YES
+    DEPENDENCIES=NO
+    shift # past argument
+    ;;
+    -s|--sql)
+    SQL=YES
+    shift # past argument
+    ;;
+    -a|--all)
+    ALL=YES
+    shift # past argument
+    ;;
+    -D|--no-dependencies)
+    DEPENDENCIES=NO
+    shift # past argument
+    ;;
+    -t|--test)
+    TEST=YES
+    ALL=YES
+    shift # past argument
+    ;;
+    --default)
+    DEFAULT=YES
+    ;;
+    *)
+	re='^[0-9]+$'
+	if ! [[ $i =~ $re ]] ; then
+		
+		if [ -z "${RUN_COMMAND_PRE}" ]
+		then			
+			RUN_COMMAND_PRE=$i
+		else
+			RUN_COMMAND_POST=$i	
+		fi
+	else
+		ID=$i
+		shift
+	fi
+
+            # unknown option
+    ;;
+esac
+shift # past argument or value
+re='^[0-9]+$|^--all$|^-a$|\s'
+if ! [[ $i =~ $re ]]; then
+	if [ "$ARGS" = "" ]; then
+		ARGS="$ARGS$i"
+	else	
+		ARGS="$ARGS $i"
+	fi
+#else
+#	echo $i;
+fi
+done
+
+if [ -n "$RUN_COMMAND_PRE" ]
+then
+	ARGS="$ARGS "'"'"$RUN_COMMAND_PRE"'"'
+fi
+
+if [ -n "$RUN_COMMAND_POST" ]
+then
+        ARGS="$ARGS '$RUN_COMMAND_POST'"
+fi
+
+
+
+username=ruben
+password=vRgPXyfl9FN1
+
+serverNames=()
+serverHosts=()
+serverPaths=()
+serverTests=()
+serverEnvVars=()
+serverPostCommands=()
+serverUsers=()
+
+function addServer(){
+ serverNames+=($1) 
+ serverHosts+=($2) 
+ serverPaths+=($3)
+ serverTests+=($4)
+ serverEnvVars+=($5)
+ serverPostCommands+=($6)
+ serverUsers+=($7)
+}
+
+
+function doUpdate(){
+
+#askQuestion "boolean" "Do you wish to update SQL on the first node?" "n"
+#updateSql=$lastInput
+
+#askQuestion "boolean" "Do you whish to update the package dependencies?" "y"
+#updateDependencies=$lastInput
+
+#askQuestion "boolean" "Do you wish to update test servers only?" "n"
+#testServersOnly=$lastInput
+
+
+if [ "$ALL" = "YES" ]
+then
+	sHosts=(${serverHosts[@]})
+	sNames=(${serverNames[@]})
+	sTests=(${serverTests[@]})
+	sPaths=(${serverPaths[@]})
+	sEnvVars=(${serverEnvVars[@]})
+        sPostCommands=(${serverPostCommands[@]})
+	sUsers=(${serverUsers[@]})
+
+else
+ 	sHosts=("${serverHosts[lastInput]}")
+	sNames=("${serverNames[lastInput]}")
+	sTests=("${serverTests[lastInput]}")
+	sPaths=("${serverPaths[lastInput]}")
+	sEnvVarss=("${serverEnvVars[lastInput]}")
+	sPostCommands=("${serverPostCommands[lastInput]}")
+	sUsers=("${serverUsers[lastInput]}")
+fi
+
+ARGS="${ARGS//\"/\'\"\'}"
+
+for ((i = 0; i <  ${#sHosts[@]}; i++))
+do
+if [ "$ALL" = "YES" ]
+        then
+              
+
+	echo "updateScript $i $ARGS"
+	gnome-terminal -e "bash -c 'cd $PWD; updateScript $i $ARGS'"
+	#bash -c "bash -c 'cd $PWD; updateScript $i $ARGS'"
+        else
+
+	command=""
+
+	if [ -n "${sUsers[i]}" ]
+        then
+		command="${command} su ${sUsers[i]};"
+	fi
+
+
+	if [ -n "${sEnvVars[i]}" ]
+	then
+		command="${command} ${sEnvVars[i]};";
+	fi
+
+	command="${command} cd ${sPaths[i]};"
+        
+	if [ -n "${RUN_COMMAND_PRE}" ]
+        then
+                command="${command} ${RUN_COMMAND_PRE};";
+        fi
+
+	command="${command} git pull;"
+
+	if [ "$TEST" = "YES" ] &&  [ "${sTests[i]}" = "n" ]
+	then
+		continue
+	fi
+
+	if [ "$DEPENDENCIES" = "YES" ]
+	then
+		#command="${command}"
+		command="${command} composer self-update; php -d memory_limit=-1 /usr/bin/composer update;"
+	fi
+
+	if [ "$SQL" = "YES" ]
+        then
+                command="${command} php bin/console doctrine:schema:update --force;"
+        fi
+
+	if [ "$CHECKOUT" = "NO" ]
+	then
+		command="${command} php bin/console cache:clear --env=prod; php bin/console assets:install --env=prod; php bin/console fos:js-routing:dump --env=prod; php bin/console assetic:dump --env=prod;"
+	fi
+
+	if [ -n "${sPostCommands[i]}" ]
+	then
+                command="${command} ${sPostCommands[i]};";
+        fi
+
+   	if [ -n "${RUN_COMMAND_POST}" ]
+        then
+                command="${command} ${RUN_COMMAND_POST};";
+        fi
+
+
+	echo "Update RSA leads: ${sNames[i]}:"
+	echo $command;
+	ssh -t  ruben@${sHosts[i]}  "echo ${password} | sudo -H -S sh -c \"${command}\""
+fi
+done
+
+}
+
+while [ "$PWD" != "/" ]
+do
+
+if [ -f "$PWD/.servers" ]
+then
+	. $PWD/.servers
+
+	if [ "$ALL" = "NO" ]
+	then
+
+		if [ -z "$ID" ] 
+		then
+			for ((i = 0; i <  ${#serverHosts[@]}; i++))
+			do
+	        		echo "${i}. ${serverNames[i]}";
+			done
+
+			askQuestion choices "Select a server to login?" 0 "${serverNames[@]}"
+		else
+			lastInput=$ID
+		fi
+	fi
+
+	doUpdate
+	break
+
+fi
+
+cd ..
+
+done
+
+if  [ "$PWD" = "/" ]
+then
+	echo "No update profile found!"
+fi
+
